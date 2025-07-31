@@ -190,7 +190,7 @@ func (rs *ReconnRemoteSigner) handleSignVoteRequest(chainID string, vote *cometp
 		Error: nil,
 	}}
 
-	sig, voteExtSig, timestamp, err := signAndTrack(
+	sig, voteExtSig, timestamp, err := SignAndTrack(
 		context.TODO(),
 		rs.Logger,
 		rs.privVal,
@@ -219,7 +219,7 @@ func (rs *ReconnRemoteSigner) handleSignProposalRequest(
 		},
 	}
 
-	signature, _, timestamp, err := signAndTrack(
+	signature, _, timestamp, err := SignAndTrack(
 		context.TODO(),
 		rs.Logger,
 		rs.privVal,

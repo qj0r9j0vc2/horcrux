@@ -1,6 +1,8 @@
 module github.com/strangelove-ventures/horcrux/v3
 
-go 1.21
+go 1.23.1
+
+toolchain go1.24.2
 
 require (
 	github.com/Jille/raft-grpc-leader-rpc v1.1.0
@@ -9,10 +11,10 @@ require (
 	github.com/armon/go-metrics v0.4.1
 	github.com/cometbft/cometbft v0.38.2
 	github.com/cosmos/cosmos-sdk v0.50.1
-	github.com/cosmos/gogoproto v1.4.11
+	github.com/cosmos/gogoproto v1.4.12
 	github.com/ethereum/go-ethereum v1.13.5
 	github.com/gogo/protobuf v1.3.2
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/hashicorp/raft v1.6.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
@@ -25,8 +27,8 @@ require (
 	github.com/tendermint/go-amino v0.16.0
 	gitlab.com/unit410/edwards25519 v0.0.0-20220725154547-61980033348e
 	gitlab.com/unit410/threshold-ed25519 v0.0.0-20220812172601-56783212c4cc
-	golang.org/x/sync v0.3.0
-	google.golang.org/grpc v1.59.0
+	golang.org/x/sync v0.6.0
+	google.golang.org/grpc v1.62.1
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -53,6 +55,7 @@ require (
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
 	github.com/cometbft/cometbft-db v0.7.0 // indirect
+	github.com/cometbft/cometbft/api v1.0.0 // indirect
 	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/cosmos/cosmos-db v1.0.0 // indirect
 	github.com/cosmos/cosmos-proto v1.0.0-beta.3 // indirect
@@ -69,7 +72,7 @@ require (
 	github.com/go-kit/kit v0.12.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
-	github.com/golang/glog v1.1.2 // indirect
+	github.com/golang/glog v1.2.0 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
 	github.com/google/btree v1.1.2 // indirect
@@ -117,15 +120,15 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tecbot/gorocksdb v0.0.0-20191217155057-f0fad39f321c // indirect
 	go.etcd.io/bbolt v1.3.8 // indirect
-	golang.org/x/crypto v0.14.0 // indirect
+	golang.org/x/crypto v0.22.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
-	golang.org/x/net v0.17.0 // indirect
-	golang.org/x/sys v0.14.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
-	google.golang.org/genproto v0.0.0-20231106174013-bbf56f31fb17 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20231106174013-bbf56f31fb17 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20231106174013-bbf56f31fb17 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
+	golang.org/x/net v0.24.0 // indirect
+	golang.org/x/sys v0.19.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
+	google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240123012728-ef4313101c80 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240123012728-ef4313101c80 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect

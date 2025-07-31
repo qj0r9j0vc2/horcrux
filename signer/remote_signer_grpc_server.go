@@ -91,7 +91,7 @@ func (s *RemoteSignerGRPCServer) Sign(
 ) (*proto.SignBlockResponse, error) {
 	chainID, block := req.ChainID, BlockFromProto(req.Block)
 
-	sig, voteExtSig, timestamp, err := signAndTrack(ctx, s.logger, s.validator, chainID, block)
+	sig, voteExtSig, timestamp, err := SignAndTrack(ctx, s.logger, s.validator, chainID, block)
 	if err != nil {
 		return nil, err
 	}
