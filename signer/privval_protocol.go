@@ -8,12 +8,12 @@ import (
 
 	cometcryptoed25519 "github.com/cometbft/cometbft/crypto/ed25519"
 	cometcryptoencoding "github.com/cometbft/cometbft/crypto/encoding"
-	"github.com/cometbft/cometbft/libs/protoio"
 	cometlog "github.com/cometbft/cometbft/libs/log"
+	"github.com/cometbft/cometbft/libs/protoio"
 	cometprotocrypto "github.com/cometbft/cometbft/proto/tendermint/crypto"
 	cometprotoprivval "github.com/cometbft/cometbft/proto/tendermint/privval"
 	cometproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	
+
 	// CometBFT v1.0 API imports
 	cometbftprivvalv1 "github.com/cometbft/cometbft/api/cometbft/privval/v1"
 	cometbfttypesv1 "github.com/cometbft/cometbft/api/cometbft/types/v1"
@@ -233,11 +233,11 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 
 	// Convert v1 Vote to legacy format for signing
 	legacyVote := &cometproto.Vote{
-		Type:             cometproto.SignedMsgType(req.Vote.Type),
-		Height:           req.Vote.Height,
-		Round:            req.Vote.Round,
-		BlockID:          cometproto.BlockID{
-			Hash:          req.Vote.BlockID.Hash,
+		Type:   cometproto.SignedMsgType(req.Vote.Type),
+		Height: req.Vote.Height,
+		Round:  req.Vote.Round,
+		BlockID: cometproto.BlockID{
+			Hash: req.Vote.BlockID.Hash,
 			PartSetHeader: cometproto.PartSetHeader{
 				Total: req.Vote.BlockID.PartSetHeader.Total,
 				Hash:  req.Vote.BlockID.PartSetHeader.Hash,
@@ -246,9 +246,10 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 		Timestamp:        req.Vote.Timestamp,
 		ValidatorAddress: req.Vote.ValidatorAddress,
 		ValidatorIndex:   req.Vote.ValidatorIndex,
+		Extension:        req.Vote.Extension,
 	}
 
-	sig, voteExtSig, timestamp, err := SignAndTrack(
+	sig, voteExtSig, _, err := SignAndTrack(
 		ctx,
 		logger,
 		privVal,
@@ -260,7 +261,7 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 		return &cometbftprivvalv1.Message{Sum: msgSum}, nil
 	}
 
-	msgSum.SignedVoteResponse.Vote.Timestamp = timestamp
+	msgSum.SignedVoteResponse.Vote.Timestamp = req.Vote.Timestamp
 	msgSum.SignedVoteResponse.Vote.Signature = sig
 	// CRITICAL FIX: Always assign ExtensionSignature to ensure deterministic behavior
 	// This matches the legacy protocol behavior and prevents non-deterministic signatures
@@ -279,12 +280,12 @@ func (p *V1Protocol) handleSignProposalRequest(ctx context.Context, chainID stri
 
 	// Convert v1 Proposal to legacy format for signing
 	legacyProposal := &cometproto.Proposal{
-		Type:      cometproto.SignedMsgType(proposal.Type),
-		Height:    proposal.Height,
-		Round:     proposal.Round,
-		PolRound:  proposal.PolRound,
-		BlockID:   cometproto.BlockID{
-			Hash:          proposal.BlockID.Hash,
+		Type:     cometproto.SignedMsgType(proposal.Type),
+		Height:   proposal.Height,
+		Round:    proposal.Round,
+		PolRound: proposal.PolRound,
+		BlockID: cometproto.BlockID{
+			Hash: proposal.BlockID.Hash,
 			PartSetHeader: cometproto.PartSetHeader{
 				Total: proposal.BlockID.PartSetHeader.Total,
 				Hash:  proposal.BlockID.PartSetHeader.Hash,
