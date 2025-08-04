@@ -36,7 +36,6 @@ type Config struct {
 	DebugAddr           string               `yaml:"debugAddr"`
 	GRPCAddr            string               `yaml:"grpcAddr"`
 	MaxReadSize         int                  `yaml:"maxReadSize"`
-	ProtocolVersion     string               `yaml:"protocolVersion,omitempty"` // "legacy" or "v1", defaults to "legacy"
 }
 
 func (c *Config) Nodes() (out []string) {
@@ -54,20 +53,7 @@ func (c *Config) MustMarshalYaml() []byte {
 	return out
 }
 
-func (c *Config) GetProtocolVersion() ProtocolVersion {
-	if c.ProtocolVersion == "v1" {
-		return ProtocolVersionV1
-	}
-	// Default to legacy for backward compatibility
-	return ProtocolVersionLegacy
-}
-
 func (c *Config) ValidateSingleSignerConfig() error {
-	// Validate protocol version
-	if c.ProtocolVersion != "" && c.ProtocolVersion != "legacy" && c.ProtocolVersion != "v1" {
-		return fmt.Errorf("invalid protocol version: %s, must be 'legacy' or 'v1'", c.ProtocolVersion)
-	}
-	
 	return c.ChainNodes.Validate()
 }
 
@@ -328,12 +314,23 @@ func CosignersFromFlag(cosigners []string) (out []CosignerConfig, err error) {
 }
 
 type ChainNode struct {
-	PrivValAddr string `json:"privValAddr" yaml:"privValAddr"`
+	PrivValAddr     string `json:"privValAddr" yaml:"privValAddr"`
+	ProtocolVersion string `json:"protocolVersion,omitempty" yaml:"protocolVersion,omitempty"` // "legacy" or "v1", defaults to "legacy"
 }
 
 func (cn ChainNode) Validate() error {
 	_, err := url.Parse(cn.PrivValAddr)
 	return err
+}
+
+// GetProtocolVersion returns the protocol version for this chain node
+func (cn ChainNode) GetProtocolVersion() ProtocolVersion {
+	switch cn.ProtocolVersion {
+	case "v1":
+		return ProtocolVersionV1
+	default:
+		return ProtocolVersionLegacy
+	}
 }
 
 type ChainNodes []ChainNode

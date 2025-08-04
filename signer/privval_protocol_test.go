@@ -83,10 +83,11 @@ func (v *RealSigningValidator) Stop() {}
 
 // TestProtocolVersionHandling tests protocol version configuration and switching
 func TestProtocolVersionHandling(t *testing.T) {
-	configs := []Config{
-		{ProtocolVersion: ""},       // Default (legacy)
-		{ProtocolVersion: "legacy"}, // Explicit legacy
-		{ProtocolVersion: "v1"},     // V1 protocol
+	// Test per-node protocol version configuration
+	nodes := []ChainNode{
+		{PrivValAddr: "tcp://localhost:26658", ProtocolVersion: ""},       // Default (legacy)
+		{PrivValAddr: "tcp://localhost:26659", ProtocolVersion: "legacy"}, // Explicit legacy
+		{PrivValAddr: "tcp://localhost:26660", ProtocolVersion: "v1"},     // V1 protocol
 	}
 
 	expectedVersions := []ProtocolVersion{
@@ -95,11 +96,11 @@ func TestProtocolVersionHandling(t *testing.T) {
 		ProtocolVersionV1,
 	}
 
-	for i, config := range configs {
-		version := config.GetProtocolVersion()
+	for i, node := range nodes {
+		version := node.GetProtocolVersion()
 		require.Equal(t, expectedVersions[i], version,
-			"Config with ProtocolVersion=%q should return %s",
-			config.ProtocolVersion, expectedVersions[i])
+			"Node with ProtocolVersion=%q should return %s",
+			node.ProtocolVersion, expectedVersions[i])
 
 		// Verify protocol can be created
 		protocol, err := NewPrivValProtocol(version)
@@ -108,10 +109,10 @@ func TestProtocolVersionHandling(t *testing.T) {
 	}
 
 	// Test invalid version defaults to legacy
-	config := &Config{ProtocolVersion: "invalid"}
-	require.Equal(t, ProtocolVersionLegacy, config.GetProtocolVersion())
+	node := ChainNode{PrivValAddr: "tcp://localhost:26661", ProtocolVersion: "invalid"}
+	require.Equal(t, ProtocolVersionLegacy, node.GetProtocolVersion())
 
-	t.Log("Protocol version switching logic verified")
+	t.Log("Per-node protocol version switching logic verified")
 }
 
 // TestV1ProtocolEndToEnd tests complete v1 protocol functionality

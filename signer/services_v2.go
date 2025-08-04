@@ -34,7 +34,7 @@ func StartRemoteSignersV2(
 		// For backward compatibility, we check if we should use the new V2 signer
 		if protocolVersion == ProtocolVersionV1 {
 			// Use V2 signer with v1 protocol
-			signer, err := NewReconnRemoteSignerV2(node, logger, privVal, dialer, maxReadSize, protocolVersion)
+			signer, err := NewReconnRemoteSignerV2WithDialer(node, logger, privVal, dialer, maxReadSize, protocolVersion)
 			if err != nil {
 				return nil, err
 			}

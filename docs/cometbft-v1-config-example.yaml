@@ -4,13 +4,23 @@
 # Signing mode - can be "single" or "threshold"
 signMode: single
 
-# Protocol version - REQUIRED for CometBFT v1.0 support
-# Options: "legacy" (default, for v0.38 and earlier) or "v1" (for v1.0+)
-protocolVersion: v1
-
 # Chain nodes configuration
+# Each node can have its own protocol version, allowing a single Horcrux instance
+# to support multiple chains with different CometBFT versions
 chainNodes:
-  - privValAddr: tcp://127.0.0.1:26658  # CometBFT node's privval listen address
+  # Example 1: Chain with CometBFT v1.0 (e.g., Injective v1.16.0+)
+  - privValAddr: tcp://injective-node:26658
+    # Protocol version for this specific node
+    # REQUIRED for CometBFT v1.0+ nodes
+    protocolVersion: v1
+    
+  # Example 2: Chain with CometBFT v0.38 (e.g., Cosmoshub-4)
+  - privValAddr: tcp://cosmoshub-node:26658
+    # protocolVersion: legacy  # Optional, defaults to "legacy" for backward compatibility
+    
+  # Example 3: Another CometBFT v1.0 chain
+  - privValAddr: tcp://another-v1-chain:26658
+    protocolVersion: v1
 
 # Optional: Debug address for metrics and debugging
 debugAddr: 127.0.0.1:6001
