@@ -473,8 +473,8 @@ func (pv *ThresholdValidator) compareBlockSignatureAgainstSSC(
 		return nil, nil, stamp, err
 	}
 
-	// only differ by timestamp, okay to sign again
-	return nil, nil, stamp, nil
+	// Ensures deterministic signatures for same H/R/S.
+	return existingSignature.Signature, existingSignature.VoteExtensionSignature, stamp, nil
 }
 
 // compareBlockSignatureAgainstHRS returns a BeyondBlockError if the hrs is greater than the
