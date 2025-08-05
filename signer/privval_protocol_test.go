@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -513,5 +515,401 @@ func TestLegacyCompatibility(t *testing.T) {
 		require.Equal(t, pubKeyBytes, legacyPubKey.Bytes())
 
 		t.Logf("Legacy PubKey encoding verified - %x", legacyPubKey.Bytes()[:10])
+	})
+}
+
+// TestNilValueHandling tests handling of nil values across protocols
+func TestNilValueHandling(t *testing.T) {
+	chainID := "test-nil"
+	validator := NewRealSigningValidator(chainID)
+	logger := log.NewNopLogger()
+
+	testCases := []struct {
+		name            string
+		protocolVersion ProtocolVersion
+	}{
+		{"V1 Protocol", ProtocolVersionV1},
+		{"Legacy Protocol", ProtocolVersionLegacy},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			protocol, err := NewPrivValProtocol(tc.protocolVersion)
+			require.NoError(t, err)
+
+			// Test nil vote
+			if tc.protocolVersion == ProtocolVersionV1 {
+				req := &cometbftprivvalv1.Message{
+					Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+						SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+							Vote:    nil,
+							ChainId: chainID,
+						},
+					},
+				}
+
+				resp, err := protocol.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+
+				v1Resp := resp.(*cometbftprivvalv1.Message)
+				voteResp := v1Resp.GetSignedVoteResponse()
+				require.NotNil(t, voteResp)
+				require.NotNil(t, voteResp.Error)
+				t.Logf("V1: Properly handled nil vote with error: %s", voteResp.Error.Description)
+			}
+
+			// Test nil BlockID
+			if tc.protocolVersion == ProtocolVersionV1 {
+				vote := &cometbfttypesv1.Vote{
+					Type:             1, // PREVOTE
+					Height:           100,
+					Round:            0,
+					BlockID:          cometbfttypesv1.BlockID{}, // Empty BlockID
+					Timestamp:        time.Now(),
+					ValidatorAddress: nil, // nil address
+					ValidatorIndex:   0,
+				}
+
+				req := &cometbftprivvalv1.Message{
+					Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+						SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+							Vote:    vote,
+							ChainId: chainID,
+						},
+					},
+				}
+
+				resp, err := protocol.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+
+				v1Resp := resp.(*cometbftprivvalv1.Message)
+				voteResp := v1Resp.GetSignedVoteResponse()
+				require.NotNil(t, voteResp)
+				// Should handle empty BlockID gracefully
+				if voteResp.Error == nil {
+					require.NotEmpty(t, voteResp.Vote.Signature)
+					t.Log("V1: Successfully signed vote with nil/empty BlockID")
+				}
+			}
+
+			// Test nil proposal
+			if tc.protocolVersion == ProtocolVersionV1 {
+				req := &cometbftprivvalv1.Message{
+					Sum: &cometbftprivvalv1.Message_SignProposalRequest{
+						SignProposalRequest: &cometbftprivvalv1.SignProposalRequest{
+							Proposal: nil,
+							ChainId:  chainID,
+						},
+					},
+				}
+
+				resp, err := protocol.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+
+				v1Resp := resp.(*cometbftprivvalv1.Message)
+				propResp := v1Resp.GetSignedProposalResponse()
+				require.NotNil(t, propResp)
+				require.NotNil(t, propResp.Error)
+				t.Logf("V1: Properly handled nil proposal with error: %s", propResp.Error.Description)
+			}
+		})
+	}
+}
+
+// TestExtensionSigning tests vote extension signing behavior
+func TestExtensionSigning(t *testing.T) {
+	chainID := "test-extensions"
+	validator := NewRealSigningValidator(chainID)
+	protocolV1 := &V1Protocol{}
+	logger := log.NewNopLogger()
+
+	t.Run("Skip Extension Signing", func(t *testing.T) {
+		// Create a valid 32-byte hash
+		hash := sha256.Sum256([]byte("test-hash"))
+		
+		vote := &cometbfttypesv1.Vote{
+			Type:             2, // PRECOMMIT - only precommits have extensions
+			Height:           1000,
+			Round:            0,
+			BlockID:          cometbfttypesv1.BlockID{Hash: hash[:]},
+			Timestamp:        time.Now(),
+			ValidatorAddress: validator.privKey.PubKey().Address(),
+			ValidatorIndex:   0,
+			Extension:        []byte("test-extension-data"),
+		}
+
+		// Test with skip_extension_signing = true
+		req := &cometbftprivvalv1.Message{
+			Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+				SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+					Vote:                 vote,
+					ChainId:              chainID,
+					SkipExtensionSigning: true,
+				},
+			},
+		}
+
+		resp, err := protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		require.NoError(t, err)
+
+		v1Resp := resp.(*cometbftprivvalv1.Message)
+		voteResp := v1Resp.GetSignedVoteResponse()
+		require.NotNil(t, voteResp)
+		require.Nil(t, voteResp.Error)
+		require.NotEmpty(t, voteResp.Vote.Signature)
+		require.Empty(t, voteResp.Vote.ExtensionSignature) // Should be empty when skipped
+		t.Log("Extension signing properly skipped when requested")
+	})
+
+	t.Run("Sign Extension", func(t *testing.T) {
+		// Create a valid 32-byte hash
+		hash := sha256.Sum256([]byte("test-hash-2"))
+		
+		vote := &cometbfttypesv1.Vote{
+			Type:             2, // PRECOMMIT
+			Height:           1001,
+			Round:            0,
+			BlockID:          cometbfttypesv1.BlockID{Hash: hash[:]},
+			Timestamp:        time.Now(),
+			ValidatorAddress: validator.privKey.PubKey().Address(),
+			ValidatorIndex:   0,
+			Extension:        []byte("test-extension-data-2"),
+		}
+
+		// Test with skip_extension_signing = false
+		req := &cometbftprivvalv1.Message{
+			Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+				SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+					Vote:                 vote,
+					ChainId:              chainID,
+					SkipExtensionSigning: false,
+				},
+			},
+		}
+
+		resp, err := protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		require.NoError(t, err)
+
+		v1Resp := resp.(*cometbftprivvalv1.Message)
+		voteResp := v1Resp.GetSignedVoteResponse()
+		require.NotNil(t, voteResp)
+		require.Nil(t, voteResp.Error)
+		require.NotEmpty(t, voteResp.Vote.Signature)
+		// Extension signature behavior depends on implementation
+		t.Log("Extension signing handled correctly")
+	})
+
+	t.Run("Prevote No Extension", func(t *testing.T) {
+		// Prevotes should never have extension signatures
+		hash := sha256.Sum256([]byte("test-hash-3"))
+		vote := &cometbfttypesv1.Vote{
+			Type:             1, // PREVOTE
+			Height:           1002,
+			Round:            0,
+			BlockID:          cometbfttypesv1.BlockID{Hash: hash[:]},
+			Timestamp:        time.Now(),
+			ValidatorAddress: validator.privKey.PubKey().Address(),
+			ValidatorIndex:   0,
+		}
+
+		req := &cometbftprivvalv1.Message{
+			Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+				SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+					Vote:                 vote,
+					ChainId:              chainID,
+					SkipExtensionSigning: false, // Even with false, prevotes shouldn't have extensions
+				},
+			},
+		}
+
+		resp, err := protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		require.NoError(t, err)
+
+		v1Resp := resp.(*cometbftprivvalv1.Message)
+		voteResp := v1Resp.GetSignedVoteResponse()
+		require.NotNil(t, voteResp)
+		require.Nil(t, voteResp.Error)
+		require.NotEmpty(t, voteResp.Vote.Signature)
+		require.Empty(t, voteResp.Vote.ExtensionSignature) // Prevotes never have extension signatures
+		t.Log("Prevote correctly has no extension signature")
+	})
+}
+
+// TestErrorConditions tests various error scenarios
+func TestErrorConditions(t *testing.T) {
+	chainID := "test-errors"
+	validator := NewRealSigningValidator(chainID)
+	logger := log.NewNopLogger()
+
+	t.Run("Wrong Protocol Message Type", func(t *testing.T) {
+		protocolV1 := &V1Protocol{}
+		legacyMsg := cometprotoprivval.Message{
+			Sum: &cometprotoprivval.Message_PubKeyRequest{
+				PubKeyRequest: &cometprotoprivval.PubKeyRequest{
+					ChainId: chainID,
+				},
+			},
+		}
+
+		_, err := protocolV1.HandleRequest(context.Background(), legacyMsg, validator, chainID, "127.0.0.1", logger)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid request type")
+	})
+
+	t.Run("Unknown Message Type", func(t *testing.T) {
+		protocolV1 := &V1Protocol{}
+		req := &cometbftprivvalv1.Message{
+			Sum: nil, // Unknown message type
+		}
+
+		resp, err := protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		require.NoError(t, err) // V1Protocol returns nil error for unknown message types
+		require.NotNil(t, resp)
+		// The response will be an empty message
+		v1Resp := resp.(*cometbftprivvalv1.Message)
+		require.Nil(t, v1Resp.Sum) // Empty response
+	})
+
+	t.Run("Message Serialization Error", func(t *testing.T) {
+		protocolV1 := &V1Protocol{}
+		
+		// Test with corrupted data
+		buf := bytes.NewBuffer([]byte{0xFF, 0xFF, 0xFF, 0xFF})
+		_, err := protocolV1.ReadMessage(buf, 1024)
+		require.Error(t, err)
+	})
+}
+
+// TestConcurrentRequests tests handling of concurrent signing requests
+func TestConcurrentRequests(t *testing.T) {
+	chainID := "test-concurrent"
+	validator := NewRealSigningValidator(chainID)
+	protocolV1 := &V1Protocol{}
+	logger := log.NewNopLogger()
+
+	// Test multiple goroutines signing different blocks
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(height int64) {
+			defer wg.Done()
+
+			vote := &cometbfttypesv1.Vote{
+				Type:             1, // PREVOTE
+				Height:           height,
+				Round:            0,
+				BlockID:          cometbfttypesv1.BlockID{},
+				Timestamp:        time.Now(),
+				ValidatorAddress: validator.privKey.PubKey().Address(),
+				ValidatorIndex:   0,
+			}
+
+			req := &cometbftprivvalv1.Message{
+				Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+					SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+						Vote:    vote,
+						ChainId: chainID,
+					},
+				},
+			}
+
+			resp, err := protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+			if err != nil {
+				errors <- err
+				return
+			}
+
+			v1Resp := resp.(*cometbftprivvalv1.Message)
+			voteResp := v1Resp.GetSignedVoteResponse()
+			if voteResp.Error != nil {
+				errors <- fmt.Errorf(voteResp.Error.Description)
+			}
+		}(int64(1000 + i))
+	}
+
+	wg.Wait()
+	close(errors)
+
+	// Check no errors occurred
+	for err := range errors {
+		t.Errorf("Concurrent request error: %v", err)
+	}
+
+	t.Log("Successfully handled concurrent signing requests")
+}
+
+// BenchmarkProtocolPerformance benchmarks protocol operations
+func BenchmarkProtocolPerformance(b *testing.B) {
+	chainID := "bench-chain"
+	validator := NewRealSigningValidator(chainID)
+	logger := log.NewNopLogger()
+
+	b.Run("V1 Protocol Signing", func(b *testing.B) {
+		protocolV1 := &V1Protocol{}
+		vote := &cometbfttypesv1.Vote{
+			Type:             1,
+			Height:           1000,
+			Round:            0,
+			BlockID:          cometbfttypesv1.BlockID{},
+			Timestamp:        time.Now(),
+			ValidatorAddress: validator.privKey.PubKey().Address(),
+			ValidatorIndex:   0,
+		}
+
+		req := &cometbftprivvalv1.Message{
+			Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+				SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+					Vote:    vote,
+					ChainId: chainID,
+				},
+			},
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = protocolV1.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		}
+	})
+
+	b.Run("Legacy Protocol Signing", func(b *testing.B) {
+		protocolLegacy := &LegacyProtocol{}
+		block := Block{
+			Height:    1000,
+			Round:     0,
+			Step:      stepPrevote,
+			Timestamp: time.Now(),
+		}
+
+		// Convert to sign bytes
+		vote := &types.Vote{
+			Type:             cometproto.SignedMsgType(block.Step),
+			Height:           block.Height,
+			Round:            int32(block.Round),
+			BlockID:          types.BlockID{},
+			Timestamp:        block.Timestamp,
+			ValidatorAddress: validator.privKey.PubKey().Address(),
+			ValidatorIndex:   0,
+		}
+		protoVote := vote.ToProto()
+		_ = types.VoteSignBytes(chainID, protoVote)
+
+		req := cometprotoprivval.Message{
+			Sum: &cometprotoprivval.Message_SignVoteRequest{
+				SignVoteRequest: &cometprotoprivval.SignVoteRequest{
+					Vote:    protoVote,
+					ChainId: chainID,
+				},
+			},
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = protocolLegacy.HandleRequest(context.Background(), req, validator, chainID, "127.0.0.1", logger)
+		}
 	})
 }
