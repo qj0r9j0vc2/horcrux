@@ -47,6 +47,28 @@ type ThresholdValidator struct {
 	cosignerHealth *CosignerHealth
 
 	nonceCache *CosignerNonceCache
+
+	// signMutex prevents concurrent signing for the same HRS
+	signMutex sync.Mutex
+	// signRequests tracks ongoing signing requests to prevent duplicates
+	signRequests map[string]*SignRequest
+}
+
+type SignRequest struct {
+	mu         sync.Mutex
+	completed  bool
+	signature  []byte
+	voteExtSig []byte
+	timestamp  time.Time
+	err        error
+	waiters    []chan signResult
+}
+
+type signResult struct {
+	signature  []byte
+	voteExtSig []byte
+	timestamp  time.Time
+	err        error
 }
 
 type ChainSignState struct {
@@ -663,6 +685,91 @@ func (pv *ThresholdValidator) Sign(
 
 	log.Debug("I am the leader. Managing the sign process for this block")
 
+	// CRITICAL FIX: Prevent duplicate signing for same HRS
+	// Create unique key for this signing request
+	signKey := fmt.Sprintf("%s:%d:%d:%d", chainID, height, round, step)
+	
+	pv.signMutex.Lock()
+	if pv.signRequests == nil {
+		pv.signRequests = make(map[string]*SignRequest)
+	}
+	
+	// Check if there's already a signing request in progress
+	if req, exists := pv.signRequests[signKey]; exists {
+		pv.signMutex.Unlock()
+		
+		// Wait for the existing request to complete
+		waiter := make(chan signResult, 1)
+		req.mu.Lock()
+		if req.completed {
+			// Request already completed, return result
+			req.mu.Unlock()
+			log.Debug("Returning cached signature from duplicate request", 
+				"signature", fmt.Sprintf("%x", req.signature))
+			return req.signature, req.voteExtSig, req.timestamp, req.err
+		}
+		// Add ourselves as a waiter
+		req.waiters = append(req.waiters, waiter)
+		req.mu.Unlock()
+		
+		log.Debug("Duplicate signing request detected, waiting for completion")
+		
+		// Wait for completion
+		select {
+		case result := <-waiter:
+			return result.signature, result.voteExtSig, result.timestamp, result.err
+		case <-ctx.Done():
+			return nil, nil, stamp, ctx.Err()
+		}
+	}
+	
+	// Create new signing request
+	req := &SignRequest{
+		waiters: make([]chan signResult, 0),
+	}
+	pv.signRequests[signKey] = req
+	pv.signMutex.Unlock()
+	
+	// Ensure we complete the request and notify waiters on any exit
+	var finalSig, finalVoteExtSig []byte
+	var finalTimestamp time.Time
+	var finalErr error
+	
+	defer func() {
+		// Complete the request
+		req.mu.Lock()
+		if !req.completed {
+			req.completed = true
+			req.signature = finalSig
+			req.voteExtSig = finalVoteExtSig
+			req.timestamp = finalTimestamp
+			req.err = finalErr
+			
+			// Notify all waiters
+			for _, waiter := range req.waiters {
+				select {
+				case waiter <- signResult{
+					signature:  finalSig,
+					voteExtSig: finalVoteExtSig,
+					timestamp:  finalTimestamp,
+					err:        finalErr,
+				}:
+				default:
+				}
+				close(waiter)
+			}
+		}
+		req.mu.Unlock()
+		
+		// Clean up request after 10 seconds
+		go func() {
+			time.Sleep(10 * time.Second)
+			pv.signMutex.Lock()
+			delete(pv.signRequests, signKey)
+			pv.signMutex.Unlock()
+		}()
+	}()
+
 	timeStartSignBlock := time.Now()
 
 	hrst := HRSTKey{
@@ -987,6 +1094,12 @@ func (pv *ThresholdValidator) Sign(
 		"Signed",
 		"duration_ms", float64(timeSignBlock.Microseconds())/1000,
 	)
+
+	// Store final values for defer
+	finalSig = signature
+	finalVoteExtSig = voteExtSig
+	finalTimestamp = stamp
+	finalErr = nil
 
 	return signature, voteExtSig, stamp, nil
 }

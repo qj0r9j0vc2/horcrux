@@ -106,7 +106,15 @@ func (p *LegacyProtocol) handleSignVoteRequest(ctx context.Context, chainID stri
 
 	msgSum.SignedVoteResponse.Vote.Timestamp = timestamp
 	msgSum.SignedVoteResponse.Vote.Signature = sig
-	msgSum.SignedVoteResponse.Vote.ExtensionSignature = voteExtSig
+	
+	// CRITICAL: Vote extensions are only allowed for non-nil precommits
+	// Same logic as V1 protocol to ensure consistency
+	isPrecommit := vote.Type == cometproto.PrecommitType
+	isNonNilBlock := len(vote.BlockID.Hash) > 0
+	
+	if len(voteExtSig) > 0 && isPrecommit && isNonNilBlock {
+		msgSum.SignedVoteResponse.Vote.ExtensionSignature = voteExtSig
+	}
 	return cometprotoprivval.Message{Sum: msgSum}, nil
 }
 
@@ -255,9 +263,10 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 		Timestamp:        req.Vote.Timestamp,
 		ValidatorAddress: req.Vote.ValidatorAddress,
 		ValidatorIndex:   req.Vote.ValidatorIndex,
+		Extension:        req.Vote.Extension,
 	}
 
-	sig, voteExtSig, timestamp, err := SignAndTrack(
+	sig, voteExtSig, _, err := SignAndTrack(
 		ctx,
 		logger,
 		privVal,
@@ -269,9 +278,16 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 		return &cometbftprivvalv1.Message{Sum: msgSum}, nil
 	}
 
-	msgSum.SignedVoteResponse.Vote.Timestamp = timestamp
+	msgSum.SignedVoteResponse.Vote.Timestamp = req.Vote.Timestamp
 	msgSum.SignedVoteResponse.Vote.Signature = sig
-	if !req.SkipExtensionSigning && len(voteExtSig) > 0 {
+	
+	// CRITICAL: Vote extensions are only allowed for non-nil precommits
+	// - NOT allowed for prevotes  
+	// - NOT allowed for nil precommits (BlockID.Hash is empty)
+	isPrecommit := req.Vote.Type == cometbfttypesv1.SignedMsgType(cometproto.PrecommitType)
+	isNonNilBlock := len(req.Vote.BlockID.Hash) > 0
+	
+	if !req.SkipExtensionSigning && len(voteExtSig) > 0 && isPrecommit && isNonNilBlock {
 		msgSum.SignedVoteResponse.Vote.ExtensionSignature = voteExtSig
 	}
 	return &cometbftprivvalv1.Message{Sum: msgSum}, nil

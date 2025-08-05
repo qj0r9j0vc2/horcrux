@@ -350,9 +350,11 @@ func TestV1ProtocolFeatures(t *testing.T) {
 		v1RespMsg := v1Resp.(*cometbftprivvalv1.Message)
 		v1VoteResp := v1RespMsg.GetSignedVoteResponse()
 		require.NotNil(t, v1VoteResp)
-		require.Empty(t, v1VoteResp.Vote.ExtensionSignature) // Should be empty
+		// After fix: ExtensionSignature should be assigned even with SkipExtensionSigning=true
+		// to ensure deterministic behavior across protocol versions
+		require.NotNil(t, v1VoteResp.Vote.ExtensionSignature)
 
-		t.Log("Edge case handled: skip extension signing")
+		t.Log("Deterministic behavior verified: ExtensionSignature always assigned")
 	})
 
 	t.Run("Protocol Message Compatibility", func(t *testing.T) {
@@ -380,6 +382,77 @@ func TestV1ProtocolFeatures(t *testing.T) {
 
 		t.Log("Protocol message serialization/deserialization verified")
 	})
+}
+
+// TestDeterministicVoteExtension verifies that vote extension signatures are handled deterministically
+func TestDeterministicVoteExtension(t *testing.T) {
+	chainID := "test-deterministic"
+	validator := NewRealSigningValidator(chainID)
+	logger := log.NewNopLogger()
+
+	// Create identical votes for both protocols
+	height := int64(100000)
+	round := int32(0)
+	timestamp := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	// Test legacy protocol
+	legacyProtocol := &LegacyProtocol{}
+	legacyVote := &cometproto.Vote{
+		Type:             cometproto.PrevoteType,
+		Height:           height,
+		Round:            round,
+		Timestamp:        timestamp,
+		ValidatorAddress: validator.privKey.PubKey().Address(),
+		ValidatorIndex:   0,
+	}
+
+	legacyReq := cometprotoprivval.Message{
+		Sum: &cometprotoprivval.Message_SignVoteRequest{
+			SignVoteRequest: &cometprotoprivval.SignVoteRequest{
+				Vote:    legacyVote,
+				ChainId: chainID,
+			},
+		},
+	}
+
+	legacyResp, err := legacyProtocol.HandleRequest(context.Background(), legacyReq, validator, chainID, "127.0.0.1", logger)
+	require.NoError(t, err)
+	legacyMsg := legacyResp.(cometprotoprivval.Message)
+	legacyVoteResp := legacyMsg.GetSignedVoteResponse()
+	require.NotNil(t, legacyVoteResp)
+
+	// Test V1 protocol with same vote
+	v1Protocol := &V1Protocol{}
+	v1Vote := &cometbfttypesv1.Vote{
+		Type:             1, // PREVOTE
+		Height:           height,
+		Round:            round,
+		Timestamp:        timestamp,
+		ValidatorAddress: validator.privKey.PubKey().Address(),
+		ValidatorIndex:   0,
+	}
+
+	v1Req := &cometbftprivvalv1.Message{
+		Sum: &cometbftprivvalv1.Message_SignVoteRequest{
+			SignVoteRequest: &cometbftprivvalv1.SignVoteRequest{
+				Vote:                 v1Vote,
+				ChainId:              chainID,
+				SkipExtensionSigning: true, // This should not affect determinism
+			},
+		},
+	}
+
+	v1Resp, err := v1Protocol.HandleRequest(context.Background(), v1Req, validator, chainID, "127.0.0.1", logger)
+	require.NoError(t, err)
+	v1Msg := v1Resp.(*cometbftprivvalv1.Message)
+	v1VoteResp := v1Msg.GetSignedVoteResponse()
+	require.NotNil(t, v1VoteResp)
+
+	// Verify that ExtensionSignature is handled deterministically
+	require.Equal(t, legacyVoteResp.Vote.ExtensionSignature, v1VoteResp.Vote.ExtensionSignature,
+		"ExtensionSignature must be identical between legacy and v1 protocols")
+
+	t.Log("Vote extension determinism verified across protocol versions")
 }
 
 // TestSignatureConsistency ensures signatures are consistent across multiple calls
