@@ -6,13 +6,13 @@ import (
 	"net"
 	"time"
 
+	cometbftprivvalv1 "github.com/cometbft/cometbft/api/cometbft/privval/v1"
 	cometcryptoed25519 "github.com/cometbft/cometbft/crypto/ed25519"
 	cometlog "github.com/cometbft/cometbft/libs/log"
 	cometnet "github.com/cometbft/cometbft/libs/net"
 	cometservice "github.com/cometbft/cometbft/libs/service"
 	cometp2pconn "github.com/cometbft/cometbft/p2p/conn"
 	cometprotoprivval "github.com/cometbft/cometbft/proto/tendermint/privval"
-	cometbftprivvalv1 "github.com/cometbft/cometbft/api/cometbft/privval/v1"
 )
 
 // ReconnRemoteSignerV2 dials using its dialer and responds to any
@@ -29,12 +29,30 @@ type ReconnRemoteSignerV2 struct {
 	protocol        PrivValProtocol
 }
 
-// NewReconnRemoteSignerV2 return a ReconnRemoteSignerV2 that will dial using the given
+// NewReconnRemoteSignerV2 creates a ReconnRemoteSignerV2 with a default dialer
+func NewReconnRemoteSignerV2(
+	address string,
+	logger cometlog.Logger,
+	privVal PrivValidator,
+	maxReadSize int,
+	protocolVersion ProtocolVersion,
+) (*ReconnRemoteSignerV2, error) {
+	return NewReconnRemoteSignerV2WithDialer(
+		address,
+		logger,
+		privVal,
+		net.Dialer{Timeout: 2 * time.Second},
+		maxReadSize,
+		protocolVersion,
+	)
+}
+
+// NewReconnRemoteSignerV2WithDialer return a ReconnRemoteSignerV2 that will dial using the given
 // dialer and respond to any signature requests over the connection
 // using the given privVal.
 //
 // If the connection is broken, the ReconnRemoteSignerV2 will attempt to reconnect.
-func NewReconnRemoteSignerV2(
+func NewReconnRemoteSignerV2WithDialer(
 	address string,
 	logger cometlog.Logger,
 	privVal PrivValidator,

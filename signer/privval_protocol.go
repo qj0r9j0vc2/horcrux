@@ -239,11 +239,20 @@ func (p *V1Protocol) handleSignVoteRequest(ctx context.Context, chainID string, 
 		Error: nil,
 	}}
 
+	// Check for nil vote
+	if req.Vote == nil {
+		msgSum.SignedVoteResponse.Error = &cometbftprivvalv1.RemoteSignerError{
+			Code:        1,
+			Description: "vote cannot be nil",
+		}
+		return &cometbftprivvalv1.Message{Sum: msgSum}, nil
+	}
+
 	// Convert v1 Vote to legacy format for signing
 	legacyVote := &cometproto.Vote{
-		Type:   cometproto.SignedMsgType(req.Vote.Type),
-		Height: req.Vote.Height,
-		Round:  req.Vote.Round,
+		Type:             cometproto.SignedMsgType(req.Vote.Type),
+		Height:           req.Vote.Height,
+		Round:            req.Vote.Round,
 		BlockID: cometproto.BlockID{
 			Hash: req.Vote.BlockID.Hash,
 			PartSetHeader: cometproto.PartSetHeader{
@@ -290,6 +299,15 @@ func (p *V1Protocol) handleSignProposalRequest(ctx context.Context, chainID stri
 			Proposal: cometbfttypesv1.Proposal{},
 			Error:    nil,
 		},
+	}
+
+	// Check for nil proposal
+	if proposal == nil {
+		msgSum.SignedProposalResponse.Error = &cometbftprivvalv1.RemoteSignerError{
+			Code:        1,
+			Description: "proposal cannot be nil",
+		}
+		return &cometbftprivvalv1.Message{Sum: msgSum}, nil
 	}
 
 	// Convert v1 Proposal to legacy format for signing

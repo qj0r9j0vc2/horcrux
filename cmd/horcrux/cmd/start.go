@@ -71,16 +71,8 @@ func startCmd() *cobra.Command {
 
 			go EnableDebugAndMetrics(cmd.Context(), out)
 
-			// Get protocol version from config
-			protocolVersion := config.Config.GetProtocolVersion()
-			
-			// Use new V2 StartRemoteSigners if v1 protocol is configured
-			if protocolVersion == signer.ProtocolVersionV1 {
-				services, err = signer.StartRemoteSignersV2(services, logger, val, config.Config.Nodes(), config.Config.MaxReadSize, protocolVersion)
-			} else {
-				services, err = signer.StartRemoteSigners(services, logger, val, config.Config.Nodes(), config.Config.MaxReadSize)
-			}
-			
+			// StartRemoteSignersWithNodes handles protocol versions per node
+			services, err = signer.StartRemoteSignersWithNodes(services, logger, val, config.Config.ChainNodes, config.Config.MaxReadSize)
 			if err != nil {
 				return fmt.Errorf("failed to start remote signer(s): %w", err)
 			}
