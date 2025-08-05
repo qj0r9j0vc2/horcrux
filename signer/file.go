@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/cosmos/gogoproto/proto"
-
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/crypto/ed25519"
 	cometjson "github.com/cometbft/cometbft/libs/json"
@@ -248,6 +246,8 @@ func (pv *FilePV) Sign(chainID string, block Block) ([]byte, []byte, time.Time, 
 			}
 		}
 
+		// If we get here, the votes/proposals differ in more than just timestamp
+		// This is the "conflicting data" case that prevents race conditions
 		return nil, extSig, block.Timestamp, fmt.Errorf("conflicting data")
 	}
 
@@ -308,38 +308,131 @@ func (pv *FilePV) saveSigned(height int64, round int32, step int8,
 // returns true if the only difference in the votes is their timestamp.
 func checkVotesOnlyDifferByTimestamp(lastSignBytes, newSignBytes []byte) (time.Time, bool) {
 	var lastVote, newVote cometproto.CanonicalVote
+	
+	// Unmarshal with error handling - return false instead of panic
 	if err := protoio.UnmarshalDelimited(lastSignBytes, &lastVote); err != nil {
-		panic(fmt.Sprintf("LastSignBytes cannot be unmarshalled into vote: %v", err))
+		// Log the error for debugging but don't panic
+		fmt.Printf("WARNING: Failed to unmarshal lastSignBytes as vote: %v\n", err)
+		return time.Time{}, false
 	}
 	if err := protoio.UnmarshalDelimited(newSignBytes, &newVote); err != nil {
-		panic(fmt.Sprintf("signBytes cannot be unmarshalled into vote: %v", err))
+		// Log the error for debugging but don't panic
+		fmt.Printf("WARNING: Failed to unmarshal newSignBytes as vote: %v\n", err)
+		return time.Time{}, false
 	}
-
+	
+	// Save the timestamp from the last vote before comparison
 	lastTime := lastVote.Timestamp
-	// set the times to the same value and check equality
-	now := time.Now()
-	lastVote.Timestamp = now
-	newVote.Timestamp = now
-
-	return lastTime, proto.Equal(&newVote, &lastVote)
+	
+	// Manual field-by-field comparison to avoid proto.Equal issues
+	// Check Type
+	if lastVote.Type != newVote.Type {
+		return lastTime, false
+	}
+	
+	// Check Height
+	if lastVote.Height != newVote.Height {
+		return lastTime, false
+	}
+	
+	// Check Round
+	if lastVote.Round != newVote.Round {
+		return lastTime, false
+	}
+	
+	// Check ChainID
+	if lastVote.ChainID != newVote.ChainID {
+		return lastTime, false
+	}
+	
+	// Compare BlockID - handle nil cases carefully
+	if (lastVote.BlockID == nil) != (newVote.BlockID == nil) {
+		// One is nil, the other is not
+		return lastTime, false
+	}
+	
+	if lastVote.BlockID != nil {
+		// Both are non-nil, compare the fields
+		if !bytes.Equal(lastVote.BlockID.Hash, newVote.BlockID.Hash) {
+			return lastTime, false
+		}
+		
+		// Compare PartSetHeader
+		if lastVote.BlockID.PartSetHeader.Total != newVote.BlockID.PartSetHeader.Total {
+			return lastTime, false
+		}
+		if !bytes.Equal(lastVote.BlockID.PartSetHeader.Hash, newVote.BlockID.PartSetHeader.Hash) {
+			return lastTime, false
+		}
+	}
+	
+	// All fields match except (potentially) timestamp
+	// This means the votes only differ by timestamp
+	return lastTime, true
 }
 
 // returns the timestamp from the lastSignBytes.
 // returns true if the only difference in the proposals is their timestamp
 func checkProposalsOnlyDifferByTimestamp(lastSignBytes, newSignBytes []byte) (time.Time, bool) {
 	var lastProposal, newProposal cometproto.CanonicalProposal
+	// Unmarshal with error handling - return false instead of panic
 	if err := protoio.UnmarshalDelimited(lastSignBytes, &lastProposal); err != nil {
-		panic(fmt.Sprintf("LastSignBytes cannot be unmarshalled into proposal: %v", err))
+		// Log the error for debugging but don't panic
+		fmt.Printf("WARNING: Failed to unmarshal lastSignBytes as proposal: %v\n", err)
+		return time.Time{}, false
 	}
 	if err := protoio.UnmarshalDelimited(newSignBytes, &newProposal); err != nil {
-		panic(fmt.Sprintf("signBytes cannot be unmarshalled into proposal: %v", err))
+		// Log the error for debugging but don't panic
+		fmt.Printf("WARNING: Failed to unmarshal newSignBytes as proposal: %v\n", err)
+		return time.Time{}, false
 	}
 
+	// Save the timestamp from the last proposal before comparison
 	lastTime := lastProposal.Timestamp
-	// set the times to the same value and check equality
-	now := time.Now()
-	lastProposal.Timestamp = now
-	newProposal.Timestamp = now
 
-	return lastTime, proto.Equal(&newProposal, &lastProposal)
+	// Manual field-by-field comparison to avoid proto.Equal issues
+	// Check Type
+	if lastProposal.Type != newProposal.Type {
+		return lastTime, false
+	}
+	// Check Height
+	if lastProposal.Height != newProposal.Height {
+		return lastTime, false
+	}
+	// Check Round
+	if lastProposal.Round != newProposal.Round {
+		return lastTime, false
+	}
+	// Check POLRound
+	if lastProposal.POLRound != newProposal.POLRound {
+		return lastTime, false
+	}
+	// Check ChainID
+	if lastProposal.ChainID != newProposal.ChainID {
+		return lastTime, false
+	}
+
+	// Compare BlockID - handle nil cases carefully
+	if (lastProposal.BlockID == nil) != (newProposal.BlockID == nil) {
+		// One is nil, the other is not
+		return lastTime, false
+	}
+	
+	if lastProposal.BlockID != nil {
+		// Both are non-nil, compare the fields
+		if !bytes.Equal(lastProposal.BlockID.Hash, newProposal.BlockID.Hash) {
+			return lastTime, false
+		}
+		// Compare PartSetHeader
+		if lastProposal.BlockID.PartSetHeader.Total != newProposal.BlockID.PartSetHeader.Total {
+			return lastTime, false
+		}
+		if !bytes.Equal(lastProposal.BlockID.PartSetHeader.Hash, newProposal.BlockID.PartSetHeader.Hash) {
+			return lastTime, false
+		}
+	}
+	
+	// All fields match except (potentially) timestamp
+	// This means the proposals only differ by timestamp
+	return lastTime, true
 }
