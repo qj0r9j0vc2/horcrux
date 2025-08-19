@@ -2,8 +2,6 @@ module github.com/strangelove-ventures/horcrux/v3
 
 go 1.23.1
 
-toolchain go1.24.2
-
 require (
 	github.com/Jille/raft-grpc-leader-rpc v1.1.0
 	github.com/Jille/raft-grpc-transport v1.4.0
