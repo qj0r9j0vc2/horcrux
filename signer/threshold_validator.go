@@ -473,8 +473,7 @@ func (pv *ThresholdValidator) compareBlockSignatureAgainstSSC(
 		return nil, nil, stamp, err
 	}
 
-	// Ensures deterministic signatures for same H/R/S.
-	return existingSignature.Signature, existingSignature.VoteExtensionSignature, stamp, nil
+	return nil, nil, stamp, nil
 }
 
 // compareBlockSignatureAgainstHRS returns a BeyondBlockError if the hrs is greater than the
@@ -688,32 +687,32 @@ func (pv *ThresholdValidator) Sign(
 	// CRITICAL FIX: Prevent duplicate signing for same HRS
 	// Create unique key for this signing request
 	signKey := fmt.Sprintf("%s:%d:%d:%d", chainID, height, round, step)
-	
+
 	pv.signMutex.Lock()
 	if pv.signRequests == nil {
 		pv.signRequests = make(map[string]*SignRequest)
 	}
-	
+
 	// Check if there's already a signing request in progress
 	if req, exists := pv.signRequests[signKey]; exists {
 		pv.signMutex.Unlock()
-		
+
 		// Wait for the existing request to complete
 		waiter := make(chan signResult, 1)
 		req.mu.Lock()
 		if req.completed {
 			// Request already completed, return result
 			req.mu.Unlock()
-			log.Debug("Returning cached signature from duplicate request", 
+			log.Debug("Returning cached signature from duplicate request",
 				"signature", fmt.Sprintf("%x", req.signature))
 			return req.signature, req.voteExtSig, req.timestamp, req.err
 		}
 		// Add ourselves as a waiter
 		req.waiters = append(req.waiters, waiter)
 		req.mu.Unlock()
-		
+
 		log.Debug("Duplicate signing request detected, waiting for completion")
-		
+
 		// Wait for completion
 		select {
 		case result := <-waiter:
@@ -722,19 +721,19 @@ func (pv *ThresholdValidator) Sign(
 			return nil, nil, stamp, ctx.Err()
 		}
 	}
-	
+
 	// Create new signing request
 	req := &SignRequest{
 		waiters: make([]chan signResult, 0),
 	}
 	pv.signRequests[signKey] = req
 	pv.signMutex.Unlock()
-	
+
 	// Ensure we complete the request and notify waiters on any exit
 	var finalSig, finalVoteExtSig []byte
 	var finalTimestamp time.Time
 	var finalErr error
-	
+
 	defer func() {
 		// Complete the request
 		req.mu.Lock()
@@ -744,7 +743,7 @@ func (pv *ThresholdValidator) Sign(
 			req.voteExtSig = finalVoteExtSig
 			req.timestamp = finalTimestamp
 			req.err = finalErr
-			
+
 			// Notify all waiters
 			for _, waiter := range req.waiters {
 				select {
@@ -760,7 +759,7 @@ func (pv *ThresholdValidator) Sign(
 			}
 		}
 		req.mu.Unlock()
-		
+
 		// Clean up request after 10 seconds
 		go func() {
 			time.Sleep(10 * time.Second)
